@@ -22,6 +22,7 @@ import pandas as pd
 from collections import Counter
 import re
 import numpy as np
+import psycopg2
 
 file = 'data.csv'
 df = pd.read_csv(file)
@@ -30,45 +31,29 @@ df = pd.read_csv(file)
 def clean_date(date_col):
     return pd.to_datetime(date_col, errors='coerce')
 
-def clean_title(job_title):
-    new_title = job_title.lower()
-    new_title = re.sub(r'[^0-9A-Za-zÀ-ỹ]',' ',new_title)
-    new_title = re.sub(
-        r'nhân viên|chuyên viên|onsite|dự án|thưởng|tháng|tới|usd|vnd|fresher|junior|senior|middle|manager|'
-        r'thực tập sinh|thực tập|upto|up to|năm|triệu|lương|salary|kinh nghiệm|thu nhập|từ|hà nội|hồ chí minh|quận|'
-        r'thanh xuân|tại|tiếng|anh|nhật|giao tiếp|[0-9]',
-        '',
-        new_title
-    )
-    new_title = re.sub(r'\b[a-z]\b','',new_title)
-
-    new_title = ' '.join(new_title.split())
-    return new_title
-
 def parse_title(title):
+    title = title.lower()
     if re.search(
             r'lập trình|net|smartcontract|brse|kỹ sư|triển khai|java|engineer|angularjs|laravel|php|mobile|ios|'
-            r'nodejs|android|front|back|end|python|react|delivery|ux|technical|dev|công nghệ thông tin|big data|ruby|'
-            r'data scientist|enigneer|fullstack|data|blockchain|phần mềm',
+            r'nodejs|android|front|back|end|python|react|ux|technical|dev|công nghệ thông tin|big data|ruby|'
+            r'data scientist|enigneer|fullstack|blockchain|phần mềm|tích hợp|tech|c\+\+',
             title
     ):
         return 'Developer / Engineer'
     elif re.search(r'test|tester|qa|qc|kiểm thử', title):
         return 'Tester / QA'
-    elif re.search(r'business|analyst|product|project|account|nghiệp vụ|ba', title):
+    elif re.search(r'business|analyst|product|project|account|nghiệp vụ|ba|phân tích', title):
         return 'Business / Analyst / Product'
     elif re.search(r'devops|it|kỹ thuật|kĩ thuật|system|admin|giám sát|vận hành|quản trị|infra|hệ thống|hạ tầng|'
                    r'cntt|operation', title):
         return 'IT Operations / DevOps / Support'
-    elif re.search(r'design|creator|artist', title):
+    elif re.search(r'design|creator|artist|animation', title):
         return 'Designer / Creative'
     else:
         return 'Other'
 
-def convert_to_vnd(salary):
-    return salary * 25000
-
 def parse_salary(sal_str):
+    sal_str = sal_str.lower().strip()
     if pd.isna(sal_str) or 'thỏa thuận' in sal_str:
         return np.nan, np.nan, np.nan
     elif re.search(r'trên',sal_str):
@@ -91,31 +76,75 @@ def parse_salary(sal_str):
         else:
             return float(min_val.replace('usd','').strip())*1000000, float(max_val.replace('usd','').strip())*1000000, 'VND'
 
-def parse_address():
-    pass
+def parse_address(add_str):
+    lst_str = [x.strip() for x in add_str.split(':')]
+    if len(lst_str) > 1:
+        if 'nước ngoài' in lst_str:
+            lst_str = [x for x in lst_str if x.lower() != 'nước ngoài']
+            city = lst_str[0::2]
+            city.append('nước ngoài')
+            city = ', '.join(city)
+            district = ', '.join(lst_str[1::2])
+            return city,district
+        else:
+            city = ', '.join(lst_str[0::2])
+            district = ', '.join(lst_str[1::2])
+            return city, district
+    else:
+        city = lst_str[0]
+        district = np.nan
+    return city, district
 
-# Định dạng date cho cột created_date
-date_col = df['created_date']
-df['created_date'] = clean_date(date_col)
 
-# Clean data cột job_title
-df['job_clean'] = df['job_title'].apply(clean_title)
-df['new_title'] = df['job_clean'].apply(parse_title)
-# all_words = ' '.join(df['job_clean']).split()
-# common_words = Counter(all_words).most_common(100)
-# new_df = pd.DataFrame(df['job_clean'])
-# new_df['new_title'] = df['job_clean'].apply(parse_title)
-# new_df_filter = new_df[new_df['new_title'].isna()]
-# new_df.to_csv('title.csv',index=False,header=False)
 
-print(df.info())
-print(df['new_title'].nunique())
+df['created_date'] = df['created_date'].apply(clean_date)
 
-df['salary'] = df['salary'].str.lower().str.strip()
+df['title'] = df['job_title'].apply(parse_title)
+
 df[['min_salary','max_salary','currency']] = df['salary'].apply(lambda x: pd.Series(parse_salary(x)))
-print(df[['min_salary','max_salary','currency']])
-new_df = df[['created_date','job_title','new_title','company','salary','min_salary','max_salary','currency']]
-# new_df = df[['salary','min_salary','max_salary','currency']]
-# print(new_df['salary'].unique())
-# print(new_df.dtypes)
+df[['city','district']] = df['address'].apply(lambda x: pd.Series(parse_address(x)))
+
+
+new_df = df[['created_date','job_title','title','company','salary','min_salary','max_salary','currency','address','city','district','time','link_description']]
 new_df.to_csv('title.csv',index=False,header=0)
+print(new_df.info())
+
+import psycopg2
+
+conn = psycopg2.connect("dbname=mydb user=quannh password=123456 host=localhost port=5432")
+cur = conn.cursor()
+
+create_table_query = """
+CREATE TABLE IF NOT EXISTS job_data (
+    created_date      TIMESTAMP,
+    job_title         TEXT,
+    title             TEXT,
+    company           TEXT,
+    salary            TEXT,
+    min_salary        DOUBLE PRECISION,
+    max_salary        DOUBLE PRECISION,
+    currency          TEXT,
+    address           TEXT,
+    city              TEXT,
+    district          TEXT,
+    time              TEXT,
+    link_description  TEXT
+);
+"""
+cur.execute(create_table_query)
+conn.commit()
+
+with open("title.csv", "r", encoding="utf-8") as f:
+    # Bỏ dòng header
+    next(f)
+    cur.copy_expert("""
+        COPY job_data(created_date, job_title, title, company, salary, 
+                      min_salary, max_salary, currency, address, city, 
+                      district, time, link_description)
+        FROM STDIN WITH CSV DELIMITER ',';
+    """, f)
+
+conn.commit()
+cur.close()
+conn.close()
+
