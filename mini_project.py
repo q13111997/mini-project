@@ -19,6 +19,8 @@ import pandas as pd
 import re
 import numpy as np
 import psycopg2
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 file = 'data.csv'
 df = pd.read_csv(file)
@@ -90,12 +92,12 @@ def parse_salary(sal_str):
         else:
             return np.nan, val, currency
 
-    cleaned_str = re.sub(r"[^\d]", "", sal_str)
+    cleaned_str = re.sub(r'[^\d]', '', sal_str)
     if cleaned_str == '':
         return np.nan, np.nan, np.nan
     else:
         val = float(cleaned_str)
-        if currency == "VND":
+        if currency == 'VND':
             val *= 1_000_000
         return val, val, currency
 
@@ -129,57 +131,102 @@ df[['city','district']] = df['address'].apply(lambda x: pd.Series(parse_address(
 # Xuất file csv data đã clean
 df = df[['created_date','title','company','min_salary','max_salary','currency','city','district','time','link_description']]
 df.to_csv('cleaned_data.csv',index=False)
-print(df.info())
+
+# Biểu đồ phân bố mức lương theo vị trí
+df['avg_salary'] = df[['min_salary', 'max_salary']].mean(axis=1, skipna=True)
+df.loc[df['currency'] == 'USD', 'avg_salary'] = df['avg_salary'] * 25
+df.loc[df['currency'] == 'VND', 'avg_salary'] = df['avg_salary'] / 1000000
+df_filtered = df[df['avg_salary'] <= 200]
+
+plt.figure(figsize=(6, 3))
+df_filtered.boxplot(column='avg_salary', by='title', grid=False, vert=False)
+plt.title('Phân bố mức lương theo job title')
+plt.suptitle('')  # bỏ dòng title phụ
+plt.xlabel('Mức lương (triệu VND)')
+plt.ylabel('Vị trí công việc')
+plt.show()
+
+# Biểu đồ phân bổ việc làm theo khu vực
+df = df.assign(district=df['district'].str.split(', ')).explode('district')
+df['district'] = df['district'].str.strip()
+top_districts = df['district'].value_counts().nlargest(15).index
+df_top = df[df['district'].isin(top_districts)]
+
+heatmap_data = df_top.pivot_table(
+    index='district',
+    columns='title',
+    values='company',
+    aggfunc='count',
+    fill_value=0
+)
+plt.figure(figsize=(6, 3))
+sns.heatmap(heatmap_data, cmap='YlGnBu', annot=True, fmt='d')
+plt.title('Phân bổ việc làm theo district và job title (top 15 district)')
+plt.xlabel('Job_title')
+plt.ylabel('District')
+plt.tight_layout()
+plt.show()
+
+# Biểu đồ số lượng việc làm theo từng vị trí
+job_counts = df['title'].value_counts()
+
+plt.figure(figsize=(6,3))
+sns.barplot(x=job_counts.values, y=job_counts.index, palette='viridis')
+plt.title('Số lượng việc làm theo job title', fontsize=14)
+plt.xlabel('Số lượng')
+plt.ylabel('Job Title')
+plt.show()
+
 # Import file csv vào Postgresql
-try:
-    conn = psycopg2.connect("dbname=mydb user=quannh password=123456 host=localhost port=5432")
-    cur = conn.cursor()
-
-    create_table_query = """
-    CREATE TABLE IF NOT EXISTS job_data (
-        created_date      TIMESTAMP,
-        title             TEXT,
-        company           TEXT,
-        min_salary        DOUBLE PRECISION,
-        max_salary        DOUBLE PRECISION,
-        currency          TEXT,
-        city              TEXT,
-        district          TEXT,
-        time              TEXT,
-        link_description  TEXT
-    );
-    """
-    cur.execute(create_table_query)
-
-    truncate_table_query = "TRUNCATE TABLE job_data;"
-    cur.execute(truncate_table_query)
-
-    with open("cleaned_data.csv", "r", encoding="utf-8") as f:
-        # Bỏ dòng header
-        # next(f)
-        cur.copy_expert("""
-            COPY job_data(
-                created_date,
-                title, 
-                company, 
-                min_salary, 
-                max_salary, 
-                currency, 
-                city, 
-                district, 
-                time, 
-                link_description
-            )
-            FROM STDIN WITH CSV HEADER DELIMITER ',';
-        """, f)
-
-    conn.commit()
-
-except Exception as e:
-    conn.rollback()
-    print("Error:", e)
-
-finally:
-    cur.close()
-    conn.close()
+# try:
+#     conn = psycopg2.connect('dbname=mydb user=quannh password=123456 host=localhost port=5432')
+#     cur = conn.cursor()
+#
+#     create_table_query = '''
+#     CREATE TABLE IF NOT EXISTS job_data (
+#         created_date      TIMESTAMP,
+#         title             TEXT,
+#         company           TEXT,
+#         min_salary        DOUBLE PRECISION,
+#         max_salary        DOUBLE PRECISION,
+#         currency          TEXT,
+#         city              TEXT,
+#         district          TEXT,
+#         time              TEXT,
+#         link_description  TEXT
+#     );
+#     '''
+#     cur.execute(create_table_query)
+#
+#     truncate_table_query = 'TRUNCATE TABLE job_data;'
+#     cur.execute(truncate_table_query)
+#
+#     with open('cleaned_data.csv', 'r', encoding='utf-8') as f:
+#         # Bỏ dòng header
+#         # next(f)
+#         cur.copy_expert('''
+#             COPY job_data(
+#                 created_date,
+#                 title,
+#                 company,
+#                 min_salary,
+#                 max_salary,
+#                 currency,
+#                 city,
+#                 district,
+#                 time,
+#                 link_description
+#             )
+#             FROM STDIN WITH CSV HEADER DELIMITER ',';
+#         ''', f)
+#
+#     conn.commit()
+#
+# except Exception as e:
+#     conn.rollback()
+#     print('Error:', e)
+#
+# finally:
+#     cur.close()
+#     conn.close()
 
