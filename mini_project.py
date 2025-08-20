@@ -15,6 +15,8 @@
 # Biểu đồ xu hướng công nghệ hot
 
 from collections import Counter
+import os
+import logging
 import pandas as pd
 import re
 import numpy as np
@@ -23,8 +25,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 file = 'data.csv'
-df = pd.read_csv(file)
-#print(df['link_description'].unique()[:100])
+
+try:
+    if not os.path.exists(file):
+        raise FileNotFoundError(f"File {file} không tồn tại!")
+    df = pd.read_csv(file)
+    logging.info("Đọc file thành công")
+except Exception as e:
+    logging.error(e)
 
 def clean_date(date_col):
     return pd.to_datetime(date_col, errors='coerce')
@@ -178,55 +186,54 @@ plt.ylabel('Job Title')
 plt.show()
 
 # Import file csv vào Postgresql
-# try:
-#     conn = psycopg2.connect('dbname=mydb user=quannh password=123456 host=localhost port=5432')
-#     cur = conn.cursor()
-#
-#     create_table_query = '''
-#     CREATE TABLE IF NOT EXISTS job_data (
-#         created_date      TIMESTAMP,
-#         title             TEXT,
-#         company           TEXT,
-#         min_salary        DOUBLE PRECISION,
-#         max_salary        DOUBLE PRECISION,
-#         currency          TEXT,
-#         city              TEXT,
-#         district          TEXT,
-#         time              TEXT,
-#         link_description  TEXT
-#     );
-#     '''
-#     cur.execute(create_table_query)
-#
-#     truncate_table_query = 'TRUNCATE TABLE job_data;'
-#     cur.execute(truncate_table_query)
-#
-#     with open('cleaned_data.csv', 'r', encoding='utf-8') as f:
-#         # Bỏ dòng header
-#         # next(f)
-#         cur.copy_expert('''
-#             COPY job_data(
-#                 created_date,
-#                 title,
-#                 company,
-#                 min_salary,
-#                 max_salary,
-#                 currency,
-#                 city,
-#                 district,
-#                 time,
-#                 link_description
-#             )
-#             FROM STDIN WITH CSV HEADER DELIMITER ',';
-#         ''', f)
-#
-#     conn.commit()
-#
-# except Exception as e:
-#     conn.rollback()
-#     print('Error:', e)
-#
-# finally:
-#     cur.close()
-#     conn.close()
+try:
+    conn = psycopg2.connect('dbname=mydb user=quannh password=123456 host=localhost port=5432')
+    cur = conn.cursor()
 
+    create_table_query = '''
+    CREATE TABLE IF NOT EXISTS job_data (
+        created_date      TIMESTAMP,
+        title             TEXT,
+        company           TEXT,
+        min_salary        DOUBLE PRECISION,
+        max_salary        DOUBLE PRECISION,
+        currency          TEXT,
+        city              TEXT,
+        district          TEXT,
+        time              TEXT,
+        link_description  TEXT
+    );
+    '''
+    cur.execute(create_table_query)
+
+    truncate_table_query = 'TRUNCATE TABLE job_data;'
+    cur.execute(truncate_table_query)
+
+    with open('cleaned_data.csv', 'r', encoding='utf-8') as f:
+        # Bỏ dòng header
+        # next(f)
+        cur.copy_expert('''
+            COPY job_data(
+                created_date,
+                title,
+                company,
+                min_salary,
+                max_salary,
+                currency,
+                city,
+                district,
+                time,
+                link_description
+            )
+            FROM STDIN WITH CSV HEADER DELIMITER ',';
+        ''', f)
+
+    conn.commit()
+
+except Exception as e:
+    conn.rollback()
+    print('Error:', e)
+
+finally:
+    cur.close()
+    conn.close()
