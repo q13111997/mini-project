@@ -104,12 +104,9 @@ df['title'] = df['job_title'].apply(parse_title)
 df[['min_salary','max_salary','currency']] = df['salary'].apply(lambda x: pd.Series(parse_salary(x)))
 df[['city','district']] = df['address'].apply(lambda x: pd.Series(parse_address(x)))
 
-
-new_df = df[['created_date','job_title','title','company','salary','min_salary','max_salary','currency','address','city','district','time','link_description']]
-new_df.to_csv('title.csv',index=False,header=0)
-print(new_df.info())
-
-import psycopg2
+df = df[['created_date','title','company','min_salary','max_salary','currency','city','district','time','link_description']]
+df.to_csv('cleaned_data.csv',index=False,header=0)
+print(df.info())
 
 conn = psycopg2.connect("dbname=mydb user=quannh password=123456 host=localhost port=5432")
 cur = conn.cursor()
@@ -117,14 +114,11 @@ cur = conn.cursor()
 create_table_query = """
 CREATE TABLE IF NOT EXISTS job_data (
     created_date      TIMESTAMP,
-    job_title         TEXT,
     title             TEXT,
     company           TEXT,
-    salary            TEXT,
     min_salary        DOUBLE PRECISION,
     max_salary        DOUBLE PRECISION,
     currency          TEXT,
-    address           TEXT,
     city              TEXT,
     district          TEXT,
     time              TEXT,
@@ -132,15 +126,23 @@ CREATE TABLE IF NOT EXISTS job_data (
 );
 """
 cur.execute(create_table_query)
-conn.commit()
 
-with open("title.csv", "r", encoding="utf-8") as f:
+with open("cleaned_data.csv", "r", encoding="utf-8") as f:
     # Bỏ dòng header
-    next(f)
+    # next(f)
     cur.copy_expert("""
-        COPY job_data(created_date, job_title, title, company, salary, 
-                      min_salary, max_salary, currency, address, city, 
-                      district, time, link_description)
+        COPY job_data(
+            created_date,
+            title, 
+            company, 
+            min_salary, 
+            max_salary, 
+            currency, 
+            city, 
+            district, 
+            time, 
+            link_description
+        )
         FROM STDIN WITH CSV DELIMITER ',';
     """, f)
 
