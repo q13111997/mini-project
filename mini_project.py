@@ -13,13 +13,9 @@
 # Vẽ biểu đồ phân bố mức lương theo vị trí
 # Vẽ bản đồ nhiệt (heatmap) phân bố việc làm theo khu vực
 # Biểu đồ xu hướng công nghệ hot
-#
-# Lưu ý quan trọng:
-# Sử dụng version control (git) cho code
-# Viết unit test cho các hàm xử lý dữ liệu
 
-import pandas as pd
 from collections import Counter
+import pandas as pd
 import re
 import numpy as np
 import psycopg2
@@ -54,27 +50,54 @@ def parse_title(title):
 
 def parse_salary(sal_str):
     sal_str = sal_str.lower().strip()
+
+    currency = ''
+    if 'usd' in sal_str:
+        currency = 'USD'
+    else:
+        currency = 'VND'
+
     if pd.isna(sal_str) or 'thỏa thuận' in sal_str:
         return np.nan, np.nan, np.nan
-    elif re.search(r'trên',sal_str):
-        sal_str = re.sub(r'trên|triệu|,','',sal_str)
-        if 'usd' in sal_str:
-            return float(sal_str.replace('usd','')), np.nan, 'USD'
+
+    if '-' in sal_str:
+        sal_str = re.sub(r'trên|tới|triệu|usd|,', '', sal_str)
+        val_parts = sal_str.split('-')
+        min_value = float(val_parts[0].strip())
+        max_value = float(val_parts[1].strip())
+        if currency == 'VND':
+            min_value *= 1000000
+            max_value *= 1000000
+            return min_value, max_value, currency
         else:
-            return float(sal_str.replace('usd',''))*1000000, np.nan, 'VND'
-    elif re.search(r'tới',sal_str):
-        sal_str = re.sub(r'tới|triệu|,','',sal_str)
-        if 'usd' in sal_str:
-            return np.nan, float(sal_str.replace('usd','')), 'USD'
+            return min_value, max_value, currency
+
+    if re.search(r'trên', sal_str):
+        sal_str = re.sub(r'trên|triệu|usd|,', '', sal_str)
+        val = float(sal_str.strip())
+        if currency == 'VND':
+            val *= 1000000
+            return val, np.nan, currency
         else:
-            return np.nan, float(sal_str.replace('usd',''))*1000000, 'VND'
-    elif '-' in sal_str:
-        sal_str = re.sub(r'trên|tới|triệu|,', '', sal_str)
-        min_val, max_val = sal_str.split('-')
-        if 'usd' in sal_str:
-            return float(min_val.replace('usd','').strip()), float(max_val.replace('usd','').strip()), 'USD'
+            return val, np.nan, currency
+
+    if re.search(r'tới', sal_str):
+        sal_str = re.sub(r'tới|triệu|usd|,', '', sal_str)
+        val = float(sal_str.strip())
+        if currency == 'VND':
+            val *= 1000000
+            return np.nan, val, currency
         else:
-            return float(min_val.replace('usd','').strip())*1000000, float(max_val.replace('usd','').strip())*1000000, 'VND'
+            return np.nan, val, currency
+
+    cleaned_str = re.sub(r"[^\d]", "", sal_str)
+    if cleaned_str == '':
+        return np.nan, np.nan, np.nan
+    else:
+        val = float(cleaned_str)
+        if currency == "VND":
+            val *= 1_000_000
+        return val, val, currency
 
 def parse_address(add_str):
     lst_str = [x.strip() for x in add_str.split(':')]
@@ -95,58 +118,68 @@ def parse_address(add_str):
         district = np.nan
     return city, district
 
-
-
+# Ép kiểu cột created_date về dạng date
 df['created_date'] = df['created_date'].apply(clean_date)
-
+# Xử lý cột job_title
 df['title'] = df['job_title'].apply(parse_title)
-
+# Parse cột salary thành các cột min_salary, max_salary, currency
 df[['min_salary','max_salary','currency']] = df['salary'].apply(lambda x: pd.Series(parse_salary(x)))
+# Parse cột address thành cột city, district
 df[['city','district']] = df['address'].apply(lambda x: pd.Series(parse_address(x)))
-
+# Xuất file csv data đã clean
 df = df[['created_date','title','company','min_salary','max_salary','currency','city','district','time','link_description']]
-df.to_csv('cleaned_data.csv',index=False,header=0)
+df.to_csv('cleaned_data.csv',index=False)
 print(df.info())
+# Import file csv vào Postgresql
+try:
+    conn = psycopg2.connect("dbname=mydb user=quannh password=123456 host=localhost port=5432")
+    cur = conn.cursor()
 
-conn = psycopg2.connect("dbname=mydb user=quannh password=123456 host=localhost port=5432")
-cur = conn.cursor()
+    create_table_query = """
+    CREATE TABLE IF NOT EXISTS job_data (
+        created_date      TIMESTAMP,
+        title             TEXT,
+        company           TEXT,
+        min_salary        DOUBLE PRECISION,
+        max_salary        DOUBLE PRECISION,
+        currency          TEXT,
+        city              TEXT,
+        district          TEXT,
+        time              TEXT,
+        link_description  TEXT
+    );
+    """
+    cur.execute(create_table_query)
 
-create_table_query = """
-CREATE TABLE IF NOT EXISTS job_data (
-    created_date      TIMESTAMP,
-    title             TEXT,
-    company           TEXT,
-    min_salary        DOUBLE PRECISION,
-    max_salary        DOUBLE PRECISION,
-    currency          TEXT,
-    city              TEXT,
-    district          TEXT,
-    time              TEXT,
-    link_description  TEXT
-);
-"""
-cur.execute(create_table_query)
+    truncate_table_query = "TRUNCATE TABLE job_data;"
+    cur.execute(truncate_table_query)
 
-with open("cleaned_data.csv", "r", encoding="utf-8") as f:
-    # Bỏ dòng header
-    # next(f)
-    cur.copy_expert("""
-        COPY job_data(
-            created_date,
-            title, 
-            company, 
-            min_salary, 
-            max_salary, 
-            currency, 
-            city, 
-            district, 
-            time, 
-            link_description
-        )
-        FROM STDIN WITH CSV DELIMITER ',';
-    """, f)
+    with open("cleaned_data.csv", "r", encoding="utf-8") as f:
+        # Bỏ dòng header
+        # next(f)
+        cur.copy_expert("""
+            COPY job_data(
+                created_date,
+                title, 
+                company, 
+                min_salary, 
+                max_salary, 
+                currency, 
+                city, 
+                district, 
+                time, 
+                link_description
+            )
+            FROM STDIN WITH CSV HEADER DELIMITER ',';
+        """, f)
 
-conn.commit()
-cur.close()
-conn.close()
+    conn.commit()
+
+except Exception as e:
+    conn.rollback()
+    print("Error:", e)
+
+finally:
+    cur.close()
+    conn.close()
 
