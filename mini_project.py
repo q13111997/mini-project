@@ -40,9 +40,9 @@ def clean_date(date_col):
 def parse_title(title):
     title = title.lower()
     if re.search(
-            r'lập trình|net|smartcontract|brse|kỹ sư|triển khai|java|engineer|angularjs|laravel|php|mobile|ios|'
+            r'\b(lập trình|net|smartcontract|kỹ sư|triển khai|java|engineer|angularjs|laravel|php|mobile|ios|'
             r'nodejs|android|front|back|end|python|react|ux|technical|dev|công nghệ thông tin|big data|ruby|'
-            r'data scientist|enigneer|fullstack|blockchain|phần mềm|tích hợp|tech|c\+\+',
+            r'data scientist|enigneer|fullstack|blockchain|phần mềm|tích hợp|tech|nhân viên IT|c\+\+)\b',
             title
     ):
         return 'Developer / Engineer'
@@ -51,7 +51,7 @@ def parse_title(title):
     elif re.search(r'business|analyst|product|project|account|nghiệp vụ|ba|phân tích', title):
         return 'Business / Analyst / Product'
     elif re.search(r'devops|it|kỹ thuật|kĩ thuật|system|admin|giám sát|vận hành|quản trị|infra|hệ thống|hạ tầng|'
-                   r'cntt|operation', title):
+                   r'cntt|operation|helpdesk', title):
         return 'IT Operations / DevOps / Support'
     elif re.search(r'design|creator|artist|animation', title):
         return 'Designer / Creative'
@@ -112,10 +112,10 @@ def parse_salary(sal_str):
 def parse_address(add_str):
     lst_str = [x.strip() for x in add_str.split(':')]
     if len(lst_str) > 1:
-        if 'nước ngoài' in lst_str:
+        if 'nước ngoài' in [x.lower() for x in lst_str]:
             lst_str = [x for x in lst_str if x.lower() != 'nước ngoài']
             city = lst_str[0::2]
-            city.append('nước ngoài')
+            city.append('Nước Ngoài')
             city = ', '.join(city)
             district = ', '.join(lst_str[1::2])
             return city,district
